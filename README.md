@@ -1,6 +1,6 @@
 # Stat_331
 
-Repo for Stat 331 with Dr.Bodwin; Winter Quarter 2019
+Repo for Stat 331 with Dr. Bodwin; Winter Quarter 2019
 
 -------------------------------
 STAT 331. Statistical Computing with R. 4 units
