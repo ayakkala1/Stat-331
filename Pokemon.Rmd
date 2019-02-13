@@ -165,65 +165,106 @@ p <- p %>%
 p
 ```
 ```{r}
-Pokemon <- list()
-for(i in 1:100) {
-  Pokemon[[i]] <- list(visible = FALSE,
-                     name = paste0('Percent of health missing: ',i),
-                     x=1:20,
-                     y= as.list(pokes %>%
-                       #filter(Name == "Cacturne") %>%
-                       mutate(mod_catch = modified_catch(i, HP, Catch_Rate)) %>%
-                       mutate(shake_prob = 1048560 %/% floor(sqrt(floor
-                                               (sqrt(16711680%/%mod_catch)))))  %>%
-                       select(shake_prob) %>%
-                       pmap_dfr(
-                       ., 
-                       ~as.list(set_names(
-                           capture_k_trials(...), 
-                           paste0(1:20)
-                       )), 
-                       k = 1:20
-                       ) %>%
-                       add_column(pokes$Name)))
+# Pokemon <- list()
+# for(i in 1:100) {
+#   Pokemon[[i]] <- list(visible = FALSE,
+#                      name = paste0('Percent of health missing: ',i),
+#                      x=1:20,
+#                      y= pokes %>%
+#                        #filter(Name == "Cacturne") %>%
+#                        mutate(mod_catch = modified_catch(i, HP, Catch_Rate)) %>%
+#                        mutate(shake_prob = 1048560 %/% floor(sqrt(floor
+#                                                (sqrt(16711680%/%mod_catch)))))  %>%
+#                        select(shake_prob) %>%
+#                        pmap_dfr(
+#                        ., 
+#                        ~as.list(set_names(
+#                            capture_k_trials(...), 
+#                            paste0(1:20)
+#                        )), 
+#                        k = 1:20
+#                        ) %>%
+#                        add_column(Name = pokes$Name))
+#}
+format_poke_graph <- function(i){
+                return(list(method = "restyle",
+                args = list("transforms[0].value", unique(test$Name)[i]),
+                label = unique(test$Name)[i]))
 }
+
+test <- pokes %>%
+        #filter(Name == "Cacturne") %>%
+         mutate(mod_catch = modified_catch(50, HP, Catch_Rate)) %>%
+         mutate(shake_prob = 1048560 %/% floor(sqrt(floor
+                                   (sqrt(16711680%/%mod_catch)))))  %>%
+         select(shake_prob) %>%
+         pmap_dfr(
+                  ., 
+                 ~as.list(set_names(
+                  capture_k_trials(...), 
+                  paste0(1:20)
+                  )), 
+                   k = 1:20
+                  ) %>%
+        add_column(Name = pokes$Name) %>%
+        gather("tries","percent_succ",-Name) %>%
+        mutate(tries = as.integer(tries))
 
 Pokemon[100][[1]]$visible = TRUE
 
 steps <- list()
-p <- plot_ly()
-for (i in 100:1) {
-  p <- add_lines(p,x=Pokemon[i][[1]]$x,  y=Pokemon[i][[1]]$y$chance, visible = Pokemon[i][[1]]$visible, 
-                 name = Pokemon[i][[1]]$name, type = 'scatter', mode = 'lines', hoverinfo = 'name', 
-                 line=list(color='00CED1'), showlegend = FALSE) %>%
-       layout(xaxis = list(title = 'K tries'),
-                yaxis = list(title = 'Percent of Success'),
-                legend = list(x = 0.80, y = 0.90))
+p <- plot_ly(data = test, x = ~tries, y = ~percent_succ)
 
-  step <- list(args = list('visible', rep(FALSE, length(Pokemon))),
-               method = 'restyle')
-  step$args[[2]][i] = TRUE  
-  steps[[i]] = step 
-}
+# for (i in 100:1) {
+#   p <- add_lines(p,x=Pokemon[i][[1]]$x,  y=Pokemon[i][[1]]$y$chance, visible = Pokemon[i][[1]]$visible, 
+#                  name = Pokemon[i][[1]]$name, type = 'scatter', mode = 'lines', hoverinfo = 'name', 
+#                  line=list(color='00CED1'), showlegend = FALSE) %>%
+#        layout(xaxis = list(title = 'K tries'),
+#                 yaxis = list(title = 'Percent of Success'),
+#                 legend = list(x = 0.80, y = 0.90))
+# 
+#   step <- list(args = list('visible', rep(FALSE, length(Pokemon))),
+#                method = 'restyle')
+#   step$args[[2]][i] = TRUE  
+#   steps[[i]] = step 
+# }
 
-p <- p %>%
-  layout(sliders = list(list(active = 100,
-                             currentvalue = list(prefix = "Percentage Health Missing: "),
-                             steps = steps)),
+p <- test %>%
+  plot_ly(
+    type = 'scatter',
+    x = ~tries,
+    y = ~percent_succ,
+    text = ~Name,
+    hoverinfo = 'text',
+    mode = 'line',
+    transforms = list(
+      list(
+        type = 'filter',
+        target = ~Name,
+        operation = '=',
+        value = unique(test$Name)[1]
+      )
+    )) %>% layout(
         title = "Pick a pokemon",
         updatemenus = list(
           list(
-            buttons = list(
-              list(method = 'restyle',
-                   args = list(pokes$Name == "Cacturne", list(pokes$Name =='Cacturne')),
-                   label = "Cacturne"),
-              list(method = 'restyle',
-                   args = list(pokes$Name == "Bagon", list(pokes$Name =='Bagon')),
-                   label = "Bagon"),
-              list(method = 'restyle',
-                   args = list(pokes$Name == 'Sableye', list(pokes$Name =='virginica')),
-                   label = "Sableye")
-              ))))
-
+            type = 'dropdown',
+            active = 0,
+            buttons = map(1:length(pokes),format_poke_graph)
+              
+              # 
+              #   list(
+              # list(method = "restyle",
+              #   args = list("transforms[0].value", unique(test$Name)[1]),
+              #   label = unique(test$Name)[1]),
+              # list(method = "restyle",
+              #   args = list("transforms[0].value", unique(test$Name)[100]),
+              #   label = unique(test$Name)[100]),
+              # list(method = "restyle",
+              #   args = list("transforms[0].value", unique(test$Name)[200]),
+              #   label = unique(test$Name)[200])
+    )))
+  
 p
 ```
 
