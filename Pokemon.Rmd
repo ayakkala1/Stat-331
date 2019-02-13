@@ -1,0 +1,232 @@
+---
+title: "git"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(Hmisc)
+library(plotly)
+library(forcats)
+pokes <-read.csv("https://www.dropbox.com/s/i0lwxgv86eaoq4o/pokemon.csv?dl=1")
+```
+
+```{r}
+
+pokes %>%
+  mutate(types = paste(Type_1,Type_2,sep=":")) %>%
+  separate_rows(types, sep = ":", convert = FALSE) %>%
+  filter(types != "") %>%
+  mutate(Type = fct_reorder(types,Catch_Rate,.fun=mean)) %>%
+  ggplot(aes(x = Type, y = Catch_Rate))+ geom_boxplot()
+
+```
+
+```{r}
+legendary <- c("Articuno","Zapdos","Moltres","Mewtwo","Mew","Raikou",
+               "Entei","Suicune","Lugia","Ho-Oh","Latias","Latios","Kyogre",
+               "Groudon","Rayquaza","Jirachi","Deoxys","Regirock","Regice",
+               "Registeel","Uxie","Mesprit","Azelf","Dialga","Palkia","Heatran",
+               "Regigigas","Giratina","Cresselia","Phione","Manaphy","Darkrai",
+               "Shaymin","Arceus","Victini","Cobalion", "Virizion", "Tornadus",
+               "Thundurus","Reshiram","Zekrom","Landorus","Kyurem","Keldeo",
+               "Genesec","Xerneas","Yveltal","Zygarde","Diancie","Hoopa","Volcanion")
+
+pokes %>%
+  filter(!Name %in% legendary) %>%
+  mutate(types = paste(Type_1,Type_2,sep=":")) %>%
+  separate_rows(types, sep = ":", convert = FALSE) %>%
+  filter(types != "") %>%
+  mutate(Type = fct_reorder(types,Catch_Rate,.fun=mean)) %>%
+  group_by(Type) %>%
+  summarise(mean_catch = mean(Catch_Rate)) %>%
+  mutate(Type = fct_reorder(Type,mean_catch,fun=n,desc=TRUE)) %>%
+  ggplot(aes(x=Type, y=mean_catch, fill = Type)) + geom_col()
+
+
+```
+```{r}
+pokes %>%
+  keep(is.numeric) %>%
+  as.matrix() %>%
+  rcorr(type = "spearman")
+
+```
+
+```{r}
+# Modified catch rate
+capture_k_trials <- function(shake_prob, k){
+  
+  prob_pass_shake <- (shake_prob-1)/65535
+  
+  prob_shake_fails <- 1-dbinom(4, size = 4, prob = prob_pass_shake)
+  
+  prob_one_succ <- 1-(prob_shake_fails)^k
+    
+  return(prob_one_succ)
+}
+
+modified_catch <- function(perc,HP,Catch_Rate){
+  mod <- ((((3 * HP) - (2 * (HP*(perc/100))))*Catch_Rate)/(3*HP))
+  return(mod)
+}
+
+current = pokes$HP %/% 2
+pokes %>%
+  mutate(mod_catch = ((3 * HP - 2 * current)*Catch_Rate)/(3*HP)) %>%
+  mutate(shake_prob = 1048560 %/% floor(sqrt(floor(sqrt(16711680%/%mod_catch))))) %>%
+  mutate(prob_succ = map_dbl(shake_prob,~capture_k_trials(.x,5))) %>%
+    filter(!Name %in% legendary) %>%
+    mutate(types = paste(Type_1,Type_2,sep=":")) %>%
+    separate_rows(types, sep = ":", convert = FALSE) %>%
+      filter(types != "") %>%
+      mutate(Type = fct_reorder(types,prob_succ,.fun=mean)) %>%
+        group_by(Type) %>%
+        summarise(mean_catch = mean(prob_succ),mean_catch2 = mean(Catch_Rate)) %>%
+        mutate(Type = fct_reorder(Type,mean_catch,fun=n,desc=TRUE)) %>%
+            ggplot(aes(x=Type, y=mean_catch, fill = Type)) + geom_col() +
+
+  
+```
+```{r}
+pokes %>%
+    filter(Name == "Bagon") %>%
+    select(HP,Catch_Rate) %>%
+    pmap_dfr(
+    ., 
+    ~as.list(set_names(
+        modified_catch(...), 
+        paste0(1:100)
+    )), 
+    perc = 1:100
+    ) %>%
+    gather(key = "percent", value="mod_catch") %>%
+    mutate(shake_prob = 1048560 %/% floor(sqrt(floor
+                                               (sqrt(16711680%/%mod_catch))))) %>%
+    mutate(prob_succ = map_dbl(shake_prob,~capture_k_trials(.x,1))) %>%
+    mutate(percent = as.integer(percent)) %>%
+    ggplot(aes(x=percent,y=prob_succ))+geom_point()+ylim(0,0.2)
+
+```
+```{r}
+
+Bagon <- list()
+for(i in 1:100) {
+  Bagon[[i]] <- list(visible = FALSE,
+                     name = paste0('Percent of health missing: ',i),
+                     x=1:20,
+                     y= as.list(pokes %>%
+                       filter(Name == "Cacturne") %>%
+                       mutate(mod_catch = modified_catch(i, HP, Catch_Rate)) %>%
+                       mutate(shake_prob = 1048560 %/% floor(sqrt(floor
+                                               (sqrt(16711680%/%mod_catch)))))  %>%
+                       select(shake_prob) %>%
+                       pmap_dfr(
+                       ., 
+                       ~as.list(set_names(
+                           capture_k_trials(...), 
+                           paste0(1:20)
+                       )), 
+                       k = 1:20
+                       ) %>%
+                       gather(key = "tries",value="chance") %>%
+                       select(chance)))
+}
+
+Bagon[100][[1]]$visible = TRUE
+
+steps <- list()
+p <- plot_ly()
+for (i in 100:1) {
+  p <- add_lines(p,x=Bagon[i][[1]]$x,  y=Bagon[i][[1]]$y$chance, visible = Bagon[i][[1]]$visible, 
+                 name = Bagon[i][[1]]$name, type = 'scatter', mode = 'lines', hoverinfo = 'name', 
+                 line=list(color='00CED1'), showlegend = FALSE) %>%
+       layout(xaxis = list(title = 'K tries'),
+                yaxis = list(title = 'Percent of Success'),
+                legend = list(x = 0.80, y = 0.90))
+
+  step <- list(args = list('visible', rep(FALSE, length(Bagon))),
+               method = 'restyle')
+  step$args[[2]][i] = TRUE  
+  steps[[i]] = step 
+}
+
+p <- p %>%
+  layout(sliders = list(list(active = 100,
+                             currentvalue = list(prefix = "Percentage Health Missing: "),
+                             steps = steps))
+              )
+
+p
+```
+```{r}
+Pokemon <- list()
+for(i in 1:100) {
+  Pokemon[[i]] <- list(visible = FALSE,
+                     name = paste0('Percent of health missing: ',i),
+                     x=1:20,
+                     y= as.list(pokes %>%
+                       #filter(Name == "Cacturne") %>%
+                       mutate(mod_catch = modified_catch(i, HP, Catch_Rate)) %>%
+                       mutate(shake_prob = 1048560 %/% floor(sqrt(floor
+                                               (sqrt(16711680%/%mod_catch)))))  %>%
+                       select(shake_prob) %>%
+                       pmap_dfr(
+                       ., 
+                       ~as.list(set_names(
+                           capture_k_trials(...), 
+                           paste0(1:20)
+                       )), 
+                       k = 1:20
+                       ) %>%
+                       add_column(pokes$Name)))
+}
+
+Pokemon[100][[1]]$visible = TRUE
+
+steps <- list()
+p <- plot_ly()
+for (i in 100:1) {
+  p <- add_lines(p,x=Pokemon[i][[1]]$x,  y=Pokemon[i][[1]]$y$chance, visible = Pokemon[i][[1]]$visible, 
+                 name = Pokemon[i][[1]]$name, type = 'scatter', mode = 'lines', hoverinfo = 'name', 
+                 line=list(color='00CED1'), showlegend = FALSE) %>%
+       layout(xaxis = list(title = 'K tries'),
+                yaxis = list(title = 'Percent of Success'),
+                legend = list(x = 0.80, y = 0.90))
+
+  step <- list(args = list('visible', rep(FALSE, length(Pokemon))),
+               method = 'restyle')
+  step$args[[2]][i] = TRUE  
+  steps[[i]] = step 
+}
+
+p <- p %>%
+  layout(sliders = list(list(active = 100,
+                             currentvalue = list(prefix = "Percentage Health Missing: "),
+                             steps = steps)),
+        title = "Pick a pokemon",
+        updatemenus = list(
+          list(
+            buttons = list(
+              list(method = 'restyle',
+                   args = list(pokes$Name == "Cacturne", list(pokes$Name =='Cacturne')),
+                   label = "Cacturne"),
+              list(method = 'restyle',
+                   args = list(pokes$Name == "Bagon", list(pokes$Name =='Bagon')),
+                   label = "Bagon"),
+              list(method = 'restyle',
+                   args = list(pokes$Name == 'Sableye', list(pokes$Name =='virginica')),
+                   label = "Sableye")
+              ))))
+
+p
+```
+
+
+
+
