@@ -1,5 +1,6 @@
 ---
-title: "git"
+title: "Pokemon Lab"
+author: "Anish Yakkala"
 output: html_document
 ---
 
@@ -14,16 +15,95 @@ library(Hmisc)
 library(plotly)
 library(forcats)
 pokes <-read.csv("https://www.dropbox.com/s/i0lwxgv86eaoq4o/pokemon.csv?dl=1")
+
+#Scraped using script I wrote in Python (https://github.com/ayakkala1/Stat-331/blob/master/scrape_smogon.py): 
+
+smogon <- read.csv("/Users/ramanyakkala/Stat-331/smogon.csv")
 ```
 
-```{r}
+# Pokemon Strength Analysis
 
+This analysis will judge "strong pokemon" by using Smogon rankings.
+
+"Smogon University, commonly shortened to Smogon, is a website whose content encompasses competitive Pokémon battling. It offers guides on battling strategies for people of different Pokémon knowledge backgrounds. The website was founded by 'chaos' (one of the developers of NetBattle) and is a considerably well-known website, visited by competitive Pokémon battling enthusiasts."
+  - https://bulbapedia.bulbagarden.net/wiki/Smogon
+
+Let's import the smogon rankings I scraped
+```{r}
+rankings <- smogon %>%
+  filter(formats != "") %>%
+  rename("Name" = "name")
+
+```
+
+Let's do Difference of Means tests of various fighting metrics by Uber vs Not Uber. (https://www.smogon.com/dex/sm/formats/uber/)
+```{r}
 pokes %>%
-  mutate(types = paste(Type_1,Type_2,sep=":")) %>%
-  separate_rows(types, sep = ":", convert = FALSE) %>%
-  filter(types != "") %>%
-  mutate(Type = fct_reorder(types,Catch_Rate,.fun=mean)) %>%
-  ggplot(aes(x = Type, y = Catch_Rate))+ geom_boxplot()
+  left_join(select(rankings,Name,formats, evos), by = "Name") %>%
+  mutate(formats = replace_na(formats,"Untiered")) %>%
+  mutate(Uber = ifelse(formats == "Uber",1,0)) %>%
+  select_if(is.numeric) %>%
+  select(-Number) %>%
+  gather(key = variable, value = value, -Uber) %>%
+  nest(-variable) %>%
+  group_by(variable) %>%
+  mutate(p_value = unlist(map(data, ~t.test(value ~ Uber,na.rm = TRUE,.)$p.value))) %>%
+  arrange(p_value) %>%
+  mutate(significant = ifelse(p_value < 0.05,"yes","no"))
+```
+
+Everything is significant, but also we have only two pokemon that are Uber ranking in our Gen 1-6 dataset. This is because most of the Uber's
+are mega pokemon, various versions of legendary pokemon (ex: Arceus & Deoxys), or Gen 7.
+
+Let's look at the OverUsed tier which is the next ranking. This is also the more common format for competitive pokemon.
+
+```{r}
+pokes %>%
+  left_join(select(rankings,Name,formats, evos), by = "Name") %>%
+  mutate(formats = replace_na(formats,"Untiered")) %>%
+  filter(formats != "Uber" ) %>%
+  mutate(OU = ifelse(formats == "OU",1,0)) %>%
+  select_if(is.numeric) %>%
+  select(-Number) %>%
+  gather(key = variable, value = value, -OU) %>%
+  #group_by(OU, variable) %>%
+  nest(-variable) %>%
+  group_by(variable) %>%
+  mutate(p_value = unlist(map(data, ~t.test(value ~ OU,na.rm = TRUE,alternative="less",.)$p.value)),
+         t_value = unlist(map(data, ~t.test(value ~ OU,na.rm = TRUE,alternative="less",.)$statistic))) %>%
+  arrange(p_value) %>%
+  mutate(significant = ifelse(p_value < 0.05,"yes","no"))
+
+```
+
+Seems like all the one sided differences are siginficant, except for Weight & Generation & Base Catch Rate.
+
+Let's Graph the Differences.
+```{r}
+pokes %>%
+  left_join(select(rankings,Name,formats, evos), by = "Name") %>%
+  mutate(formats = replace_na(formats,"Untiered")) %>%
+  filter(formats != "Uber" ) %>%
+  mutate(OU = ifelse(formats == "OU",1,0)) %>%
+  select_if(is.numeric) %>%
+  select(-Number) %>%
+  group_by(OU) %>%
+  summarize_all(funs(mean)) %>%
+  gather(key,value,-OU) %>%
+  ggplot(aes(x = OU,y = value)) + geom_col() + facet_wrap(~key, scales = "free_y") + ggtitle("Comparisons of fighting metrics of OU vs not OU") + xlab("Non OU vs OU") + ylab("values")
+```
+
+-----------------------------------------------------------------------------------------------------------------------------------------------
+
+# Fun Stuff
+
+Some fun stuff I was doing with probability of catching a pokemon,before I realized that this lab had to do with finding stronger pokemon.
+
+```{r}
+pokes %>%
+  keep(is.numeric) %>%
+  as.matrix() %>%
+  rcorr(type = "spearman")
 
 ```
 
@@ -46,17 +126,11 @@ pokes %>%
   group_by(Type) %>%
   summarise(mean_catch = mean(Catch_Rate)) %>%
   mutate(Type = fct_reorder(Type,mean_catch,fun=n,desc=TRUE)) %>%
-  ggplot(aes(x=Type, y=mean_catch, fill = Type)) + geom_col()
+  ggplot(aes(x=Type, y=mean_catch, fill = Type)) + geom_col() + ylab("Average Base Catch Number") +ggtitle("Average Base Catch Number by Type")
 
 
 ```
-```{r}
-pokes %>%
-  keep(is.numeric) %>%
-  as.matrix() %>%
-  rcorr(type = "spearman")
 
-```
 
 ```{r}
 # Modified catch rate
@@ -89,10 +163,12 @@ pokes %>%
         group_by(Type) %>%
         summarise(mean_catch = mean(prob_succ),mean_catch2 = mean(Catch_Rate)) %>%
         mutate(Type = fct_reorder(Type,mean_catch,fun=n,desc=TRUE)) %>%
-            ggplot(aes(x=Type, y=mean_catch, fill = Type)) + geom_col() +
+            ggplot(aes(x=Type, y=mean_catch, fill = Type)) + geom_col() + ylab("Avg. Prob. of 1 success in 5 throws") + ggtitle("Average Probability of Successful Catch in 5 throws by Pokemon Type")
 
   
 ```
+
+
 ```{r}
 pokes %>%
     filter(Name == "Bagon") %>%
@@ -110,9 +186,10 @@ pokes %>%
                                                (sqrt(16711680%/%mod_catch))))) %>%
     mutate(prob_succ = map_dbl(shake_prob,~capture_k_trials(.x,1))) %>%
     mutate(percent = as.integer(percent)) %>%
-    ggplot(aes(x=percent,y=prob_succ))+geom_point()+ylim(0,0.2)
+    ggplot(aes(x=percent,y=prob_succ))+geom_point()+ylim(0,0.2) + ggtitle("Probability of Success, the higher the percent the Pokemon (Bagon)") + xlab("Percent of Health of Pokemon") + ylab("Probability of Success")
 
 ```
+
 ```{r}
 
 Bagon <- list()
@@ -164,28 +241,9 @@ p <- p %>%
 
 p
 ```
+
+
 ```{r}
-# Pokemon <- list()
-# for(i in 1:100) {
-#   Pokemon[[i]] <- list(visible = FALSE,
-#                      name = paste0('Percent of health missing: ',i),
-#                      x=1:20,
-#                      y= pokes %>%
-#                        #filter(Name == "Cacturne") %>%
-#                        mutate(mod_catch = modified_catch(i, HP, Catch_Rate)) %>%
-#                        mutate(shake_prob = 1048560 %/% floor(sqrt(floor
-#                                                (sqrt(16711680%/%mod_catch)))))  %>%
-#                        select(shake_prob) %>%
-#                        pmap_dfr(
-#                        ., 
-#                        ~as.list(set_names(
-#                            capture_k_trials(...), 
-#                            paste0(1:20)
-#                        )), 
-#                        k = 1:20
-#                        ) %>%
-#                        add_column(Name = pokes$Name))
-#}
 format_poke_graph <- function(i){
                 return(list(method = "restyle",
                 args = list("transforms[0].value", unique(test$Name)[i]),
@@ -193,7 +251,6 @@ format_poke_graph <- function(i){
 }
 
 test <- pokes %>%
-        #filter(Name == "Cacturne") %>%
          mutate(mod_catch = modified_catch(50, HP, Catch_Rate)) %>%
          mutate(shake_prob = 1048560 %/% floor(sqrt(floor
                                    (sqrt(16711680%/%mod_catch)))))  %>%
@@ -210,24 +267,10 @@ test <- pokes %>%
         gather("tries","percent_succ",-Name) %>%
         mutate(tries = as.integer(tries))
 
-Pokemon[100][[1]]$visible = TRUE
+
 
 steps <- list()
 p <- plot_ly(data = test, x = ~tries, y = ~percent_succ)
-
-# for (i in 100:1) {
-#   p <- add_lines(p,x=Pokemon[i][[1]]$x,  y=Pokemon[i][[1]]$y$chance, visible = Pokemon[i][[1]]$visible, 
-#                  name = Pokemon[i][[1]]$name, type = 'scatter', mode = 'lines', hoverinfo = 'name', 
-#                  line=list(color='00CED1'), showlegend = FALSE) %>%
-#        layout(xaxis = list(title = 'K tries'),
-#                 yaxis = list(title = 'Percent of Success'),
-#                 legend = list(x = 0.80, y = 0.90))
-# 
-#   step <- list(args = list('visible', rep(FALSE, length(Pokemon))),
-#                method = 'restyle')
-#   step$args[[2]][i] = TRUE  
-#   steps[[i]] = step 
-# }
 
 p <- test %>%
   plot_ly(
@@ -251,18 +294,6 @@ p <- test %>%
             type = 'dropdown',
             active = 0,
             buttons = map(1:length(pokes),format_poke_graph)
-              
-              # 
-              #   list(
-              # list(method = "restyle",
-              #   args = list("transforms[0].value", unique(test$Name)[1]),
-              #   label = unique(test$Name)[1]),
-              # list(method = "restyle",
-              #   args = list("transforms[0].value", unique(test$Name)[100]),
-              #   label = unique(test$Name)[100]),
-              # list(method = "restyle",
-              #   args = list("transforms[0].value", unique(test$Name)[200]),
-              #   label = unique(test$Name)[200])
     )))
   
 p
