@@ -1,0 +1,108 @@
+---
+title: "Baby Lab"
+author: "Anish Yakkala"
+date: "February 22, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(modelr)
+```
+
+```{r echo=FALSE}
+baby = read_excel("/Users/ramanyakkala/Stat-331/Course Materials - Student/Babyname_Datasets/babies_ca.xlsx")
+```
+## Question:
+
+#### Can we use a General linear model to get a good approximation of the Counts of Names per year starting with "A"?
+
+For this lab I will be using the model:
+
+  - $\beta_{0} =$ Intercept
+  - $\beta_{1} =$ Year Coeff
+  - $\beta_{2} =$ Gender Coeff s.t Male = 1, Female = 0
+  - $\beta_{3} =$ Year * Gender Coeff
+
+\[
+\hat{y} = \beta_{0} + \beta_{1}(Year) + \beta_{2}(Gender) + \beta_{3}(Year)(Gender)
+\]
+
+### First Look
+
+Let's take a first look at the distribution of the residuals.
+
+```{r echo=FALSE, warning=FALSE}
+filter_on = "a"
+
+baby_a <- baby %>%
+  mutate(first_letter = str_sub(str_to_lower(Name),end=1)) %>%
+  group_by(State,Gender,Year,first_letter) %>%
+  summarize(Count = sum(Count)) %>%
+  filter(first_letter == filter_on) 
+
+my_model_2 <- lm(Count ~ Year*Gender, data = baby_a)
+
+baby_a <- add_predictions(baby_a,my_model_2) %>%
+  mutate(
+    residual = Count - pred
+  )
+  
+
+ggplot(baby_a, aes(x = Year, y = residual, color = Gender)) + geom_point() + ggtitle("Distribution of Residuals (1941 - 2016)")
+
+```
+
+It appears the residuals aren't distributed very normally.
+
+Let's also see how the scatterplot looks like.
+
+```{r echo=FALSE}
+ggplot(baby_a, aes(x = Year, y = Count, color = Gender)) + geom_point() + ggtitle("Count of names starting with 'A' from 1941 - 2016")
+```
+
+Makes sense now! The relationship isn't very linear. However, there are intervals in which the relaaionship follows a linear trend. To fit a sensible GLM on this data let's just filter for 1941 - 1975.
+
+
+## Focusing in on 1941-1975
+
+Similarily let's take a look at the distribution of the residuals of the GLM on the filtered datset.
+```{r echo=FALSE, warning=FALSE}
+baby_a_1970 <- baby %>%
+  mutate(first_letter = str_sub(str_to_lower(Name),end=1)) %>%
+  group_by(State,Gender,Year,first_letter) %>%
+  summarize(Count = sum(Count)) %>%
+  filter(first_letter == filter_on) %>%
+  filter(Year <= 1975)
+
+my_model_3 <- lm(Count ~ Year*Gender, data = baby_a_1970)
+
+baby_a_1970 <- add_predictions(baby_a_1970,my_model_3) %>%
+  mutate(
+    residuals = Count - pred
+  )
+```
+
+```{r echo=FALSE}
+ggplot(baby_a_1970, aes(x = Year, y = residuals, color = Gender)) + geom_point() + ggtitle("Distribution of Residuals (1941 - 1975)")
+```
+
+Looks normally distributed!
+
+Let's now take a look at the relationship between the Count of "A" starting names and Years from 1941 - 1975.
+
+```{r echo=FALSE}
+ggplot(baby_a_1970, aes(x = Year, y = Count, color = Gender)) + geom_point() + ggtitle("Count of names starting with 'A' from 1941 - 1975")
+```
+
+Lastly, let's get the summary output for our model on the filtered dataset.
+
+```{r echo=FALSE}
+summary(my_model_3)
+```
+
+Looks like the Adjusted $R^{2}$ for our model is $0.9669$ which means that our model explains $96.69\%$ of the variation of Count of Names starting with "$A$" around its mean, after having been adjusted for the amount explanatory variables added. So it is fair to say that our model gives us good approximations of the Count of Names starting with "$A$" from the years $1941 - 1975$.
